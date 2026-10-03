@@ -68,18 +68,19 @@ impl InnerWebView {
       })
       .javascript_enabled(!javascript_disabled)
       .autoplay(autoplay)
-      .initialization_scripts(
-        initialization_scripts
-          .iter()
-          .map(|s| {
-            if s.for_main_frame_only {
-              format!("if (window === window.top) {{\n{}\n}}", s.script)
-            } else {
-              s.script.clone()
-            }
-          })
-          .collect(),
-      )
+      // Tauri's scripts depend on insertion order (internals, invoke, plugins).
+      // Submit one ArkWeb document-start item while retaining each frame guard.
+      .initialization_scripts(vec![initialization_scripts
+        .iter()
+        .map(|s| {
+          if s.for_main_frame_only {
+            format!("if (window === window.top) {{\n{}\n}}", s.script)
+          } else {
+            s.script.clone()
+          }
+        })
+        .collect::<Vec<_>>()
+        .join("\n;\n")])
       .transparent(transparent);
 
     #[cfg(any(debug_assertions, feature = "devtools"))]
