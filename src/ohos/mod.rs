@@ -4,7 +4,7 @@ use super::WebViewAttributes;
 use crate::{Error, Rect, RequestAsyncResponder, Result, RGBA};
 use cookie::Cookie;
 use http::{Request, Response, Uri};
-use openharmony_ability::{native_web::WebProxyBuilder, WebViewBuilder, WebViewStyle, Webview};
+use openharmony_ability::{WebViewBuilder, WebViewStyle, Webview};
 use raw_window_handle::HasWindowHandle;
 
 use crate::util::Counter;
@@ -68,11 +68,18 @@ impl InnerWebView {
       })
       .javascript_enabled(!javascript_disabled)
       .autoplay(autoplay)
-      .initialization_scripts(vec![initialization_scripts
-        .iter()
-        .map(|s| s.script.clone())
-        .collect::<Vec<_>>()
-        .join("\n")])
+      .initialization_scripts(
+        initialization_scripts
+          .iter()
+          .map(|s| {
+            if s.for_main_frame_only {
+              format!("if (window === window.top) {{\n{}\n}}", s.script)
+            } else {
+              s.script.clone()
+            }
+          })
+          .collect(),
+      )
       .transparent(transparent);
 
     #[cfg(any(debug_assertions, feature = "devtools"))]
@@ -93,44 +100,54 @@ impl InnerWebView {
       webview_builder = webview_builder.user_agent(user_agent);
     }
 
+    if let Some(ipc_handler) = ipc_handler {
+      webview_builder = webview_builder.on_ipc_message(move |frame_url, message| {
+        // Reject unavailable/opaque frame URLs instead of attributing them to the main page.
+        if let Ok(uri) = frame_url.parse::<Uri>() {
+          if uri.scheme().is_some() && frame_url != "about:blank" && frame_url != "about:srcdoc" {
+            if let Ok(request) = Request::builder().uri(uri).body(message) {
+              ipc_handler(request);
+            }
+          }
+        }
+      });
+    }
+
     let webview = webview_builder
       .build()
       .map_err(|e| Error::OpenHarmonyInitError(e.to_string()))?;
 
-    let current_id = id.clone();
-    let ipc_webview = webview.clone();
-    webview
-      .on_controller_attach(move || {
-        let _builder = WebProxyBuilder::new(current_id.clone(), "ipc".to_string())
-          .add_method("postMessage", |_frame, params| {
-            if let Some(ipc_handler) = &ipc_handler {
-              let message = params.get(0).unwrap_or(&"".to_string()).to_owned();
-              // when load html, url will be base64 and uri parse will failed, so we use about:blank avoid panic
-              let url = ipc_webview.url().unwrap_or("about:blank".to_string());
-              let uri = url
-                .parse::<Uri>()
-                .unwrap_or(Uri::from_static("about:blank"));
-
-              ipc_handler(Request::builder().uri(uri).body(message).unwrap());
-            }
-          })
-          .build()
-          .expect("Failed to build web proxy");
-      })
-      .map_err(|e| {
-        Error::OpenHarmonyInitError(format!("Failed to add controller attach listener: {}", e))
-      })?;
-
     for (protocol, callback) in custom_protocols {
       let webview_id = id.clone();
+      let is_ipc = protocol == "ipc";
       webview
-        .custom_protocol_async(protocol, move |_web, req, _is_on_main_frame, responder| {
-          let responder: Box<dyn FnOnce(Response<Cow<'static, [u8]>>)> = Box::new(move |resp| {
-            responder.respond(resp);
-          });
+        .custom_protocol_async(
+          protocol,
+          move |frame_url, mut req, is_main_frame, responder| {
+            if is_ipc {
+              // Keep opaque origins rejected. For regular origins, use the actual
+              // requesting frame supplied by ArkWeb, never webview.url().
+              let opaque = req
+                .headers()
+                .get(http::header::ORIGIN)
+                .is_some_and(|value| value == "null");
+              let origin = if opaque || is_main_frame {
+                http::HeaderValue::from_static("null")
+              } else {
+                url::Url::parse(frame_url)
+                  .ok()
+                  .and_then(|url| http::HeaderValue::from_str(url.as_str()).ok())
+                  .unwrap_or(http::HeaderValue::from_static("null"))
+              };
+              req.headers_mut().insert(http::header::ORIGIN, origin);
+            }
+            let responder: Box<dyn FnOnce(Response<Cow<'static, [u8]>>)> = Box::new(move |resp| {
+              responder.respond(resp);
+            });
 
-          (callback)(&webview_id, req, RequestAsyncResponder { responder });
-        })
+            (callback)(&webview_id, req, RequestAsyncResponder { responder });
+          },
+        )
         .unwrap();
     }
 

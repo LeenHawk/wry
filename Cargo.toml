@@ -203,8 +203,8 @@ dom_query = { version = "0.28.0", default-features = false }
 [target.'cfg(target_env = "ohos")'.dependencies]
 # openharmony-ability = { version = "0.3.0", features = ["webview"] }
 # openharmony-ability-derive = { version = "0.3.0" }
-openharmony-ability = { git = "https://github.com/harmony-contrib/openharmony-ability.git", features = ["webview"] }
-openharmony-ability-derive = { git = "https://github.com/harmony-contrib/openharmony-ability.git" }
+openharmony-ability = { git = "https://github.com/LeenHawk/openharmony-ability.git", rev = "8745735b2ace363892de62b77bdaf0e8ef0b802d", features = ["webview"] }
+openharmony-ability-derive = { git = "https://github.com/LeenHawk/openharmony-ability.git", rev = "8745735b2ace363892de62b77bdaf0e8ef0b802d" }
 
 
 [dev-dependencies]
