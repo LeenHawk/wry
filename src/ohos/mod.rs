@@ -123,7 +123,7 @@ impl InnerWebView {
       webview
         .custom_protocol_async(
           protocol,
-          move |frame_url, mut req, is_main_frame, responder| {
+          move |frame_url, mut req, _is_main_frame, responder| {
             if is_ipc {
               // Keep opaque origins rejected. For regular origins, use the actual
               // requesting frame supplied by ArkWeb, never webview.url().
@@ -131,7 +131,7 @@ impl InnerWebView {
                 .headers()
                 .get(http::header::ORIGIN)
                 .is_some_and(|value| value == "null");
-              let origin = if opaque || is_main_frame {
+              let origin = if opaque {
                 http::HeaderValue::from_static("null")
               } else {
                 url::Url::parse(frame_url)
