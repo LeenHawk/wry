@@ -478,7 +478,9 @@ impl InnerWebView {
     unsafe { Self::attach_handlers(hwnd, &webview, &mut attributes, &mut token, env)? };
 
     // IPC handler
-    unsafe { Self::attach_ipc_handler(&webview, &mut attributes, &mut token)? };
+    if let Some(ipc_handler) = attributes.ipc_handler.take() {
+      unsafe { Self::attach_ipc_handler(&webview, ipc_handler, &mut token)? };
+    };
 
     // Custom protocols handler
     let http_or_https = if pl_attrs.use_https { "https" } else { "http" };
@@ -608,7 +610,8 @@ impl InnerWebView {
       controller.SetIsVisible(attributes.visible)?;
 
       if attributes.focused {
-        controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)?;
+        // Ignore this error since it fails when the window is minimized
+        let _ = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
       }
     }
 
@@ -940,20 +943,19 @@ impl InnerWebView {
   #[inline]
   unsafe fn attach_ipc_handler(
     webview: &ICoreWebView2,
-    attributes: &mut WebViewAttributes,
+    ipc_handler: Box<dyn Fn(Request<String>)>,
     token: &mut EventRegistrationToken,
   ) -> Result<()> {
     Self::add_script_to_execute_on_document_created(
       webview,
       String::from(
-        r#"Object.defineProperty(window, 'ipc', { value: Object.freeze({ postMessage: s=> window.chrome.webview.postMessage(s) }) });"#,
+        r#"Object.defineProperty(window, 'ipc', { value: Object.freeze({ postMessage: s => window.chrome.webview.postMessage(s) }) });"#,
       ),
     )?;
 
-    let ipc_handler = attributes.ipc_handler.take();
     webview.add_WebMessageReceived(
       &WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
-        let (Some(args), Some(ipc_handler)) = (args, &ipc_handler) else {
+        let Some(args) = args else {
           return Ok(());
         };
 
@@ -971,7 +973,14 @@ impl InnerWebView {
 
         #[cfg(feature = "tracing")]
         let _span = tracing::info_span!(parent: None, "wry::ipc::handle").entered();
-        ipc_handler(Request::builder().uri(url).body(js).unwrap());
+
+        match Request::builder().uri(url).body(js) {
+          Ok(request) => ipc_handler(request),
+          Err(_error) => {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("WebView received invalid IPC request: {_error}")
+          }
+        }
 
         Ok(())
       })),
@@ -1181,7 +1190,7 @@ impl InnerWebView {
     for (name, value) in sent_response.headers().iter() {
       let header_key = name.to_string();
       if let Ok(value) = value.to_str() {
-        let _ = writeln!(headers_map, "{}: {}", header_key, value);
+        let _ = writeln!(headers_map, "{header_key}: {value}");
       }
     }
     let headers_map = HSTRING::from(headers_map);
@@ -1285,33 +1294,31 @@ impl InnerWebView {
     dwrefdata: usize,
   ) -> LRESULT {
     match msg {
-      WM_SIZE => {
-        if wparam.0 != SIZE_MINIMIZED as usize {
-          let controller = dwrefdata as *mut ICoreWebView2Controller;
+      WM_SIZE if wparam.0 != SIZE_MINIMIZED as usize => {
+        let controller = dwrefdata as *mut ICoreWebView2Controller;
 
-          let Ok(PhysicalSize { width, height }) = Self::parent_bounds(hwnd) else {
-            return DefSubclassProc(hwnd, msg, wparam, lparam);
-          };
+        let Ok(PhysicalSize { width, height }) = Self::parent_bounds(hwnd) else {
+          return DefSubclassProc(hwnd, msg, wparam, lparam);
+        };
 
-          let _ = (*controller).SetBounds(RECT {
-            left: 0,
-            top: 0,
-            right: width,
-            bottom: height,
-          });
+        let _ = (*controller).SetBounds(RECT {
+          left: 0,
+          top: 0,
+          right: width,
+          bottom: height,
+        });
 
-          let mut hwnd = HWND::default();
-          if (*controller).ParentWindow(&mut hwnd).is_ok() {
-            let _ = SetWindowPos(
-              hwnd,
-              None,
-              0,
-              0,
-              width,
-              height,
-              SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_NOZORDER,
-            );
-          }
+        let mut hwnd = HWND::default();
+        if (*controller).ParentWindow(&mut hwnd).is_ok() {
+          let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            width,
+            height,
+            SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_NOZORDER,
+          );
         }
       }
 
@@ -1320,27 +1327,21 @@ impl InnerWebView {
         let _ = (*controller).MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
       }
 
-      msg if msg == WM_MOVE || msg == WM_MOVING => {
+      WM_MOVE | WM_MOVING => {
         let controller = dwrefdata as *mut ICoreWebView2Controller;
         let _ = (*controller).NotifyParentWindowPositionChanged();
       }
 
-      msg if msg == WM_DESTROY || msg == PARENT_DESTROY_MESSAGE => {
-        // check if `dwrefdata` is null to avoid double-freeing the controller
-        if !(dwrefdata as *mut ()).is_null() {
-          drop(Box::from_raw(dwrefdata as *mut ICoreWebView2Controller));
-
-          // update `dwrefdata` to null to avoid double-freeing the controller
-          let _ = SetWindowSubclass(
-            hwnd,
-            Some(Self::parent_subclass_proc),
-            PARENT_SUBCLASS_ID as _,
-            std::ptr::null::<()>() as _,
-          );
-        }
+      WM_DESTROY | PARENT_DESTROY_MESSAGE => {
+        let _ = RemoveWindowSubclass(
+          hwnd,
+          Some(Self::parent_subclass_proc),
+          PARENT_SUBCLASS_ID as _,
+        );
+        drop(Box::from_raw(dwrefdata as *mut ICoreWebView2Controller));
       }
 
-      _ => (),
+      _ => {}
     }
 
     DefSubclassProc(hwnd, msg, wparam, lparam)
@@ -1661,14 +1662,8 @@ impl InnerWebView {
   ) -> windows::core::Result<ICoreWebView2Cookie> {
     let name = HSTRING::from(cookie.name());
     let value = HSTRING::from(cookie.value());
-    let domain = match cookie.domain() {
-      Some(domain) => HSTRING::from(domain),
-      None => HSTRING::new(),
-    };
-    let path = match cookie.path() {
-      Some(path) => HSTRING::from(path),
-      None => HSTRING::new(),
-    };
+    let domain = cookie.domain().map(HSTRING::from).unwrap_or_default();
+    let path = cookie.path().map(HSTRING::from).unwrap_or_default();
 
     let win32_cookie = cookie_manager.CreateCookie(&name, &value, &domain, &path)?;
 
@@ -1877,7 +1872,7 @@ fn load_url_with_headers(
     for (name, value) in headers.iter() {
       let header_key = name.to_string();
       if let Ok(value) = value.to_str() {
-        let _ = writeln!(headers_map, "{}: {}", header_key, value);
+        let _ = writeln!(headers_map, "{header_key}: {value}");
       }
     }
     HSTRING::from(headers_map)
