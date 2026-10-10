@@ -2268,7 +2268,7 @@ dependencies = [
  "ohos-arkui-sys",
  "ohos-xcomponent-binding",
  "ohos-xcomponent-sys",
- "ohos_enum_macro 0.0.2",
+ "ohos_enum_macro 0.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2334,19 +2334,17 @@ dependencies = [
 [[package]]
 name = "ohos-web-binding"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1ed1f2ba96b92179128f6b18ea5a0dd879210e483f7dcab51200219cbfa4a58"
+source = "git+https://github.com/LeenHawk/ohos-native-bindings.git?rev=0726726847ae4807c7adc6b86a91742219733d9e#0726726847ae4807c7adc6b86a91742219733d9e"
 dependencies = [
  "bitflags 2.8.0",
  "ohos-web-sys",
- "ohos_enum_macro 0.0.2",
+ "ohos_enum_macro 0.0.2 (git+https://github.com/LeenHawk/ohos-native-bindings.git?rev=0726726847ae4807c7adc6b86a91742219733d9e)",
 ]
 
 [[package]]
 name = "ohos-web-sys"
 version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa646f3223c2bc90a400641c3a5cda4b350387ffda1a904b8bfb3db92b81ecbc"
+source = "git+https://github.com/LeenHawk/ohos-native-bindings.git?rev=0726726847ae4807c7adc6b86a91742219733d9e#0726726847ae4807c7adc6b86a91742219733d9e"
 
 [[package]]
 name = "ohos-xcomponent-binding"
@@ -2358,7 +2356,7 @@ dependencies = [
  "napi-ohos",
  "napi-sys-ohos",
  "ohos-xcomponent-sys",
- "ohos_enum_macro 0.0.2",
+ "ohos_enum_macro 0.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "raw-window-handle",
 ]
 
@@ -2399,6 +2397,18 @@ dependencies = [
 
 [[package]]
 name = "ohos_enum_macro"
+version = "0.0.2"
+source = "git+https://github.com/LeenHawk/ohos-native-bindings.git?rev=0726726847ae4807c7adc6b86a91742219733d9e#0726726847ae4807c7adc6b86a91742219733d9e"
+dependencies = [
+ "convert_case 0.6.0",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 2.0.98",
+]
+
+[[package]]
+name = "ohos_enum_macro"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2fc1544b50988de3d636f971135e66c40479ef68e30ef09b15fb911763aab077"
@@ -2419,7 +2429,7 @@ checksum = "945462a4b81e43c4e3ba96bd7b49d834c6f61198356aa858733bc4acf3cbe62e"
 [[package]]
 name = "openharmony-ability"
 version = "0.3.0"
-source = "git+https://github.com/harmony-contrib/openharmony-ability.git#295a276a699ba2352addc69b8cacb6acd3be6ab1"
+source = "git+https://github.com/LeenHawk/openharmony-ability.git?rev=c5f0a450f7bbfedc52160f2fbeaa04886e0eb34b#c5f0a450f7bbfedc52160f2fbeaa04886e0eb34b"
 dependencies = [
  "futures-channel",
  "http",
@@ -2436,7 +2446,7 @@ dependencies = [
 [[package]]
 name = "openharmony-ability-derive"
 version = "0.3.0"
-source = "git+https://github.com/harmony-contrib/openharmony-ability.git#295a276a699ba2352addc69b8cacb6acd3be6ab1"
+source = "git+https://github.com/LeenHawk/openharmony-ability.git?rev=c5f0a450f7bbfedc52160f2fbeaa04886e0eb34b#c5f0a450f7bbfedc52160f2fbeaa04886e0eb34b"
 dependencies = [
  "proc-macro2",
  "quote",
